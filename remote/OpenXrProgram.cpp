@@ -223,17 +223,21 @@ namespace {
             };
 
             // D3D11 extension is required for this sample, so check if it's supported.
+            printf("D3D11\n");
             CHECK(EnableExtensionIfSupported(XR_KHR_D3D11_ENABLE_EXTENSION_NAME));
 
 #if UWP
             // Require XR_EXT_win32_appcontainer_compatible extension when building in UWP context.
+            printf("UWP\n");
             CHECK(EnableExtensionIfSupported(XR_EXT_WIN32_APPCONTAINER_COMPATIBLE_EXTENSION_NAME));
 #endif
 
             // If using the remoting runtime, the remoting extension must be present as well
             if (m_usingRemotingRuntime) {
+                printf(XR_MSFT_HOLOGRAPHIC_REMOTING_EXTENSION_NAME"\n");
                 CHECK(EnableExtensionIfSupported(XR_MSFT_HOLOGRAPHIC_REMOTING_EXTENSION_NAME));
-                CHECK(EnableExtensionIfSupported(XR_MSFT_HOLOGRAPHIC_REMOTING_FRAME_MIRRORING_EXTENSION_NAME));
+                //printf(XR_MSFT_HOLOGRAPHIC_REMOTING_FRAME_MIRRORING_EXTENSION_NAME"\n");
+                //CHECK(EnableExtensionIfSupported(XR_MSFT_HOLOGRAPHIC_REMOTING_FRAME_MIRRORING_EXTENSION_NAME));
             }
 
             // Additional optional extensions for enhanced functionality. Track whether enabled in m_optionalExtensions.
@@ -352,7 +356,9 @@ namespace {
                 contextProperties.videoCodec = XR_REMOTING_VIDEO_CODEC_H265_MSFT;
 
                 contextProperties.depthBufferStreamResolution = XR_REMOTING_DEPTH_BUFFER_STREAM_RESOLUTION_HALF_MSFT;
+                printf("xrRemotingSetContextPropertiesMSFT\n");
                 CHECK_XRCMD(m_extensions.xrRemotingSetContextPropertiesMSFT(m_instance.Get(), m_systemId, &contextProperties));
+                printf("OK\n");
             }
 
             if (m_options.listen) {
