@@ -1,3 +1,6 @@
 [submodule "remote/OpenXR-SDK"]
 	path = remote/OpenXR-SDK
 	url = https://github.com/Matthias-Fauconneau/OpenXR-SDK.git
+[submodule "OpenXR-SDK"]
+	path = remote/OpenXR-SDK
+	url = git@github.com:Matthias-Fauconneau/OpenXR-SDK.git

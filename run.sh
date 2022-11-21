@@ -9,3 +9,4 @@ cp RemotingXR.json $BUILD/
 #wine reg add "HKLM\Software\Khronos\OpenXR\1" /v ActiveRuntime /d RemotingXR.json
 #wine reg query "HKLM\Software\Khronos\OpenXR\1"
 XR_LOADER_DEBUG=all wine $BUILD/app.exe
+rm *.log
