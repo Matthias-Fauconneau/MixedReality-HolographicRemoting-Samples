@@ -1,4 +1,13 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let context = uvc::Context::new()?;
+    let device = context.find_device(None, None, None)?;
+    println!("Bus {:03} Device {:03} : {:?}", device.bus_number(), device.device_address(), description);
+    let device = device.open().expect("Could not open device");
+    let format = device.get_preferred_format(|x, y| { if x.fps >= y.fps && x.width * x.height >= y.width * y.height { x } else { y }}).unwrap();
+    println!("Best format found: {:?}", format);
+    let mut stream = device.get_stream_handle_with_format(format).unwrap();
+    panic!();
+
     use windows::Win32::Media::MediaFoundation::*;
     unsafe{use windows::Win32::System::Com::*; CoInitializeEx(None, COINIT(0))}?;
     unsafe{MFStartup(MF_API_VERSION, MFSTARTUP_NOSOCKET)}?;
@@ -18,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let source_reader = unsafe{MFCreateSourceReaderFromMediaSource(&media_source, Some(&attributes))}?;
     const MEDIA_FOUNDATION_FIRST_VIDEO_STREAM: u32 = 0xFFFF_FFFC;
     for index in 0.. {
-        let media_type = unsafe{source_reader.GetNativeMediaType(0, index)}?;
+        let media_type = unsafe{source_reader.GetNativeMediaType(MEDIA_FOUNDATION_FIRST_VIDEO_STREAM, index)}?;
         let fourcc = unsafe{media_type.GetGUID(&MF_MT_SUBTYPE)}?;
         println!("{fourcc:?}");
     }
