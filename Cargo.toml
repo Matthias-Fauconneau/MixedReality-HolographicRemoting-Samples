@@ -1,9 +1,13 @@
-[package]
-name = "hololens"
-version = "0.1.0"
-edition = "2021"
+package={name='hololens', version='0.0.0', edition='2021'}
 
 [dependencies]
+openxr='*'
+wgpu={version='*', features=['spirv']}
+wgpu-hal='*'
+pollster='*'
+d3d12='*'
+winapi='*' #DXGI_FORMAT_*
 
-[build-dependencies]
-cmake = "*"
+[patch.crates-io]
+openxr={path='../openxrs/openxr'}
+wgpu={path='../wgpu/wgpu'}
