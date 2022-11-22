@@ -3,7 +3,7 @@ package={name='hololens', version='0.0.0', edition='2021'}
 [dependencies]
 openxr='*'
 wgpu={version='*', features=['spirv']}
-wgpu-hal='*'
+wgpu-hal={version='=0.14.0', features=['dx12']}
 pollster='*'
 d3d12='*'
 winapi='*' #DXGI_FORMAT_*
@@ -11,3 +11,4 @@ winapi='*' #DXGI_FORMAT_*
 [patch.crates-io]
 openxr={path='../openxrs/openxr'}
 wgpu={path='../wgpu/wgpu'}
+wgpu-hal={path='../wgpu/wgpu-hal', version='=0.14.0'}
