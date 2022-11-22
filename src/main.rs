@@ -1,6 +1,29 @@
-use openxr as xr;
-fn main() -> xr::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use windows::Win32::Media::MediaFoundation::*;
+    unsafe{use windows::Win32::System::Com::*; CoInitializeEx(None, COINIT(0))}?;
+    unsafe{MFStartup(MF_API_VERSION, MFSTARTUP_NOSOCKET)}?;
+    let mut attributes = None;
+    unsafe{MFCreateAttributes(&mut attributes, 1)}?;
+    let attributes = attributes.unwrap();
+    unsafe{attributes.SetGUID(&MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID)}?;
+    let mut count = 0;
+    let mut devices: std::mem::MaybeUninit<*mut Option<IMFActivate>> = std::mem::MaybeUninit::uninit();
+    unsafe{MFEnumDeviceSources(&attributes, devices.as_mut_ptr(), &mut count)}?;
+    let devices = unsafe{std::slice::from_raw_parts(devices.assume_init(), count as usize)};
+    let media_source = unsafe{devices[0].as_ref().unwrap().ActivateObject::<IMFMediaSource>()}?;
+    let mut attributes = None;
+    unsafe{MFCreateAttributes(&mut attributes, 1)}?;
+    let attributes = attributes.unwrap();
+    unsafe{attributes.SetUINT32(&MF_READWRITE_DISABLE_CONVERTERS, u32::from(true))}?;
+    let source_reader = unsafe{MFCreateSourceReaderFromMediaSource(&media_source, Some(&attributes))}?;
+    const MEDIA_FOUNDATION_FIRST_VIDEO_STREAM: u32 = 0xFFFF_FFFC;
+    for index in 0.. {
+        let media_type = unsafe{source_reader.GetNativeMediaType(0, index)}?;
+        let fourcc = unsafe{media_type.GetGUID(&MF_MT_SUBTYPE)}?;
+        println!("{fourcc:?}");
+    }
     std::env::set_var("XR_RUNTIME_JSON", "RemotingXR.json");
+    use openxr as xr;
     let xr = xr::Entry::linked();
     let available_extensions = xr.enumerate_extensions()?;
     assert!(available_extensions.khr_d3d12_enable);
@@ -21,15 +44,19 @@ fn main() -> xr::Result<()> {
     })}).unwrap();
     use pollster::FutureExt as _;
     let adapter = wgpu::Instance::new(wgpu::Backend::Dx12.into()).request_adapter(&default()).block_on().unwrap();
-    let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor{features: wgpu::Features::MULTIVIEW, ..default()}, None).block_on().unwrap();
+    let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor{features: wgpu::Features::TEXTURE_FORMAT_16BIT_NORM|wgpu::Features::MULTIVIEW, ..default()}, None).block_on().unwrap();
     use wgpu_hal::api::Dx12;
     let (session, mut frame_wait, mut frame_stream) = unsafe {
         let (device, queue) = device.as_hal::<Dx12, _, _>(|device| (device.unwrap().raw_device().as_mut_ptr(), device.unwrap().raw_queue().as_mut_ptr()));
         xr.create_session::<xr::D3D12>(system, &xr::d3d12::SessionCreateInfo{device: device.cast(), queue: queue.cast()})
     }?;
     let vert_shader = device.create_shader_module(wgpu::include_wgsl!("fullscreen.wgsl"));
-    let frag_shader = device.create_shader_module(wgpu::include_wgsl!("debug_pattern.wgsl"));
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor{label: None, bind_group_layouts: &[], push_constant_ranges: &[]});
+    let frag_shader = device.create_shader_module(wgpu::include_wgsl!("sample.wgsl"));
+    let ref layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor{label: None, entries: &[
+        wgpu::BindGroupLayoutEntry{binding: 0, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Texture{multisampled: false, view_dimension: wgpu::TextureViewDimension::D2, sample_type: wgpu::TextureSampleType::Float{filterable: true}}, count: None},
+        wgpu::BindGroupLayoutEntry{binding: 1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None}
+    ]});
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor{label: None, bind_group_layouts: &[layout], push_constant_ranges: &[]});
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
     let view_type = xr::ViewConfigurationType::PRIMARY_STEREO;
     let views = xr.enumerate_view_configuration_views(system, view_type)?;
@@ -37,7 +64,7 @@ fn main() -> xr::Result<()> {
         label: None,
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState{module: &vert_shader, entry_point: "fullscreen_vertex_shader", buffers: &[]},
-        fragment: Some(wgpu::FragmentState{module: &frag_shader, entry_point: "debug_pattern_fragment_shader", targets: &[Some(format.into())]}),
+        fragment: Some(wgpu::FragmentState{module: &frag_shader, entry_point: "sample_fragment_shader", targets: &[Some(format.into())]}),
         primitive: default(),
         depth_stencil: None,
         multisample: default(),
@@ -64,11 +91,11 @@ fn main() -> xr::Result<()> {
         let mut event_storage = xr::EventDataBuffer::new();
         while let Some(event) = xr.poll_event(&mut event_storage)? {
             use xr::Event::*; match event {
-                SessionStateChanged(e) => {use xr::SessionState::*; match e.state() {
-                    IDLE|SYNCHRONIZED|VISIBLE|FOCUSED => {},
-                    READY => { session.begin(view_type)?; println!("Ready"); }
-                    STOPPING => { session.end()?; println!("Stopping"); return Ok(()); }
-                    EXITING|LOSS_PENDING => { println!("Exiting|LossPending"); return Ok(()); }
+                SessionStateChanged(e) => {use xr::SessionState as o; match e.state() {
+                    o::IDLE|o::SYNCHRONIZED|o::VISIBLE|o::FOCUSED => {},
+                    o::READY => { session.begin(view_type)?; println!("Ready"); }
+                    o::STOPPING => { session.end()?; println!("Stopping"); return Ok(()); }
+                    o::EXITING|o::LOSS_PENDING => { println!("Exiting|LossPending"); return Ok(()); }
                     _ => panic!("{:?}", e.state())
                 }}
                 InstanceLossPending(_) => { return Ok(()); }
@@ -81,17 +108,42 @@ fn main() -> xr::Result<()> {
         if !frame_state.should_render { dbg!(); frame_stream.end(frame_state.predicted_display_time, environment_blend_mode, &[])?; continue; }
         let index = swapchain.acquire_image()? as usize;
         swapchain.wait_image(xr::Duration::INFINITE)?;
-        let ref view = images[index].create_view(&wgpu::TextureViewDescriptor{base_array_layer: 0, array_layer_count: 1/*(views.len() as u32)*/.try_into().ok(), ..default()});
+
+        let mut sample: Option<IMFSample> = None; // drops buffer
+        loop {
+            let mut flags = 0;
+            let mut _timestamp = 0;
+            unsafe{source_reader.ReadSample(MEDIA_FOUNDATION_FIRST_VIDEO_STREAM, 0, None, Some(&mut flags), Some(&mut _timestamp), Some(&mut sample))}?;
+            if flags & MF_SOURCE_READERF_STREAMTICK.0 as u32 == 0 { break; }
+        }
+        let buffer = unsafe{sample.unwrap().ConvertToContiguousBuffer()}?;
+        let mut len = 0;
+        let mut ptr = std::ptr::null_mut();
+        unsafe{buffer.Lock(&mut ptr, None, Some(&mut len))}?;
+        let buffer = unsafe{std::slice::from_raw_parts(ptr, len as usize)};
+        let size = wgpu::Extent3d{width: 160, height: 120, depth_or_array_layers: 1};
+        let image = device.create_texture(&wgpu::TextureDescriptor{size, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R16Unorm, usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, label: None});
+        queue.write_texture(wgpu::ImageCopyTexture{texture: &image, mip_level: 0,origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All},
+                    &buffer, wgpu::ImageDataLayout {offset: 0, bytes_per_row: std::num::NonZeroU32::new(2 * size.width), rows_per_image: std::num::NonZeroU32::new(size.height)},
+                    size);
+        let image_view = image.create_view(&default());
+        let sampler = device.create_sampler(&default());
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor{label: None, layout, entries: &[
+                    wgpu::BindGroupEntry{binding: 0, resource: wgpu::BindingResource::TextureView(&image_view)},
+                    wgpu::BindGroupEntry{binding: 1, resource: wgpu::BindingResource::Sampler(&sampler)}]});    
+         
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        {let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor{label: None,
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment{view, resolve_target: None, ops: wgpu::Operations{load: wgpu::LoadOp::Clear(wgpu::Color::GREEN), store: true}})], depth_stencil_attachment: None});
-            pass.set_pipeline(&render_pipeline);
-            pass.draw(0..3, 0..1);}
-        let (_, views) = session.locate_views(view_type, frame_state.predicted_display_time, &reference_space)?;
+        {let ref view = images[index].create_view(&wgpu::TextureViewDescriptor{base_array_layer: 0, array_layer_count: 1/*(views.len() as u32)*/.try_into().ok(), ..default()});
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor{label: None,
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment{view, resolve_target: None, ops: wgpu::Operations{load: wgpu::LoadOp::Clear(wgpu::Color::GREEN), store: true}})], depth_stencil_attachment: None});
+        pass.set_pipeline(&render_pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.draw(0..3, 0..1);}
         queue.submit(Some(encoder.finish()));
         swapchain.release_image()?;
-        let rect = xr::Rect2Di {offset: xr::Offset2Di{x: 0, y: 0}, extent: xr::Extent2Di{width: width as i32, height: height as i32}};
+        let (_, views) = session.locate_views(view_type, frame_state.predicted_display_time, &reference_space)?;
         frame_stream.end(frame_state.predicted_display_time, environment_blend_mode, &[&xr::CompositionLayerProjection::new().space(&reference_space).views(&[0,1].map(|i|
-            xr::CompositionLayerProjectionView::new().pose(views[i].pose).fov(views[i].fov).sub_image(xr::SwapchainSubImage::new().swapchain(&swapchain).image_array_index(/*i as u32*/0).image_rect(rect))))])?;
+            xr::CompositionLayerProjectionView::new().pose(views[i].pose).fov(views[i].fov).sub_image(xr::SwapchainSubImage::new().swapchain(&swapchain).image_array_index(/*i as u32*/0).image_rect(xr::Rect2Di {offset: xr::Offset2Di{x: 0, y: 0}, extent: xr::Extent2Di{width: width as i32, height: height as i32}}))))])?;
     }
 }
