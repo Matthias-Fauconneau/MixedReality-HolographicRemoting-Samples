@@ -1,14 +1,16 @@
 package={name='hololens', version='0.0.0', edition='2021'}
 
 [dependencies]
+bytemuck='*'
 openxr='*'
 wgpu={version='*', features=['spirv']}
 wgpu-hal={version='=0.14.0', features=['dx12']}
 pollster='*'
 d3d12='*'
 winapi='*' #DXGI_FORMAT_*
-uvc='*'
+#uvc='*'
 #windows={version='*', features=['Win32_Media_MediaFoundation','Win32_System_Com']} # USB Video Class (MediaFoundation)
+local-ip-address="*"
 
 [patch.crates-io]
 openxr={path='../openxrs/openxr'}

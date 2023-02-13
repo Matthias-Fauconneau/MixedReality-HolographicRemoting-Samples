@@ -1,14 +1,14 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let context = uvc::Context::new()?;
+    /*let context = uvc::Context::new()?;
     let device = context.find_device(None, None, None)?;
     println!("Bus {:03} Device {:03} : {:?}", device.bus_number(), device.device_address(), description);
     let device = device.open().expect("Could not open device");
     let format = device.get_preferred_format(|x, y| { if x.fps >= y.fps && x.width * x.height >= y.width * y.height { x } else { y }}).unwrap();
     println!("Best format found: {:?}", format);
     let mut stream = device.get_stream_handle_with_format(format).unwrap();
-    panic!();
+    panic!();*/
 
-    use windows::Win32::Media::MediaFoundation::*;
+    /*use windows::Win32::Media::MediaFoundation::*;
     unsafe{use windows::Win32::System::Com::*; CoInitializeEx(None, COINIT(0))}?;
     unsafe{MFStartup(MF_API_VERSION, MFSTARTUP_NOSOCKET)}?;
     let mut attributes = None;
@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let media_type = unsafe{source_reader.GetNativeMediaType(MEDIA_FOUNDATION_FIRST_VIDEO_STREAM, index)}?;
         let fourcc = unsafe{media_type.GetGUID(&MF_MT_SUBTYPE)}?;
         println!("{fourcc:?}");
-    }
+    }*/
     std::env::set_var("XR_RUNTIME_JSON", "RemotingXR.json");
     use openxr as xr;
     let xr = xr::Entry::linked();
@@ -43,11 +43,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     enabled_extensions.msft_holographic_remoting = true;
     let xr = xr.create_instance(&xr::ApplicationInfo{application_name: "IR", engine_name: "Rust", ..default()}, &enabled_extensions, &[])?;
     let system = xr.system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)?;
-    xr.graphics_requirements::<xr::D3D12>(system)?; // Microsoft Holographic Remoting implementation fails to create session without this call    
+    xr.graphics_requirements::<xr::D3D12>(system)?; // Microsoft Holographic Remoting implementation fails to create session without this call
+    let remote_host_name = std::ffi::CString::new(std::env::args().skip(1).next().as_ref().map(|s| s.as_str()).unwrap_or("192.168.0.101"))?;
     xr::cvt(unsafe{(xr.exts().msft_holographic_remoting.unwrap().remoting_connect)(xr.as_raw(), system, &xr::sys::RemotingConnectInfoMSFT {
             ty: xr::StructureType::REMOTING_CONNECT_INFO_MSFT,
             next: std::ptr::null(),
-            remote_host_name: std::ffi::CStr::from_bytes_with_nul(b"10.6.188.27\0").unwrap().as_ptr(),
+            remote_host_name: remote_host_name.as_ptr(),
             remote_port: 8265,
             secure_connection: false.into(),
     })}).unwrap();
@@ -96,6 +97,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         unsafe{device.create_texture_from_hal::<Dx12>(<Dx12 as wgpu_hal::Api>::Device::texture_from_raw(d3d12::Resource::from_raw(image.cast()), desc.format, desc.dimension, desc.size, desc.mip_level_count, desc.sample_count), &desc)}
     }).collect::<Box<_>>();
     let reference_space = session.create_reference_space(xr::ReferenceSpaceType::VIEW, xr::Posef::IDENTITY)?;
+
+    println!("{}", local_ip_address::local_ip()?);
+    let ref camera = (std::env::args().skip(2).next().map(|interface| interface.parse().unwrap()).unwrap_or(std::net::Ipv4Addr::UNSPECIFIED),6666);
+    let camera = std::net::UdpSocket::bind(camera)?;
     loop {
         let mut event_storage = xr::EventDataBuffer::new();
         while let Some(event) = xr.poll_event(&mut event_storage)? {
@@ -118,7 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let index = swapchain.acquire_image()? as usize;
         swapchain.wait_image(xr::Duration::INFINITE)?;
 
-        let mut sample: Option<IMFSample> = None; // drops buffer
+        /*let mut sample: Option<IMFSample> = None; // drops buffer
         loop {
             let mut flags = 0;
             let mut _timestamp = 0;
@@ -129,12 +134,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut len = 0;
         let mut ptr = std::ptr::null_mut();
         unsafe{buffer.Lock(&mut ptr, None, Some(&mut len))}?;
-        let buffer = unsafe{std::slice::from_raw_parts(ptr, len as usize)};
+        let buffer = unsafe{std::slice::from_raw_parts(ptr, len as usize)};*/    
+        let mut buffer = vec![0u16; 160*120];
+        println!("receive");
+        let (len, _sender) = camera.recv_from(bytemuck::cast_slice_mut(&mut buffer))?;
+        println!("received");
+        assert!(len == buffer.len()*std::mem::size_of::<u16>());
         let size = wgpu::Extent3d{width: 160, height: 120, depth_or_array_layers: 1};
         let image = device.create_texture(&wgpu::TextureDescriptor{size, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::R16Unorm, usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, label: None});
         queue.write_texture(wgpu::ImageCopyTexture{texture: &image, mip_level: 0,origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All},
-                    &buffer, wgpu::ImageDataLayout {offset: 0, bytes_per_row: std::num::NonZeroU32::new(2 * size.width), rows_per_image: std::num::NonZeroU32::new(size.height)},
+                    bytemuck::cast_slice(&buffer), wgpu::ImageDataLayout {offset: 0, bytes_per_row: std::num::NonZeroU32::new(2 * size.width), rows_per_image: std::num::NonZeroU32::new(size.height)},
                     size);
         let image_view = image.create_view(&default());
         let sampler = device.create_sampler(&default());
