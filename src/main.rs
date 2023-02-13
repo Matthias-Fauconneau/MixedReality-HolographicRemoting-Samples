@@ -135,18 +135,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut ptr = std::ptr::null_mut();
         unsafe{buffer.Lock(&mut ptr, None, Some(&mut len))}?;
         let buffer = unsafe{std::slice::from_raw_parts(ptr, len as usize)};*/    
-        let mut buffer = vec![0u16; 160*120];
+        let mut image = vec![0u16; 160*120];
         println!("receive");
-        let (len, _sender) = camera.recv_from(bytemuck::cast_slice_mut(&mut buffer))?;
+        let (len, _sender) = camera.recv_from(bytemuck::cast_slice_mut(&mut image))?;
         println!("received");
-        assert!(len == buffer.len()*std::mem::size_of::<u16>());
+        assert!(len == image.len()*std::mem::size_of::<u16>());
+        let min = *image.iter().min().unwrap();
+        let max = *image.iter().max().unwrap();
+        for value in image.iter_mut() { *value = (*value as u32 * ((1<<16)-1) / (max - min) as u32) as u16; } // Remap to full range. FIXME: does linear output get gamma compressed or wrongly interpreted as sRGB ?
         let size = wgpu::Extent3d{width: 160, height: 120, depth_or_array_layers: 1};
-        let image = device.create_texture(&wgpu::TextureDescriptor{size, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
+        let gpu_image = device.create_texture(&wgpu::TextureDescriptor{size, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::R16Unorm, usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, label: None});
-        queue.write_texture(wgpu::ImageCopyTexture{texture: &image, mip_level: 0,origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All},
-                    bytemuck::cast_slice(&buffer), wgpu::ImageDataLayout {offset: 0, bytes_per_row: std::num::NonZeroU32::new(2 * size.width), rows_per_image: std::num::NonZeroU32::new(size.height)},
+        queue.write_texture(wgpu::ImageCopyTexture{texture: &gpu_image, mip_level: 0,origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All},
+                    bytemuck::cast_slice(&image), wgpu::ImageDataLayout {offset: 0, bytes_per_row: std::num::NonZeroU32::new(2 * size.width), rows_per_image: std::num::NonZeroU32::new(size.height)},
                     size);
-        let image_view = image.create_view(&default());
+        let image_view = gpu_image.create_view(&default());
         let sampler = device.create_sampler(&default());
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor{label: None, layout, entries: &[
                     wgpu::BindGroupEntry{binding: 0, resource: wgpu::BindingResource::TextureView(&image_view)},
