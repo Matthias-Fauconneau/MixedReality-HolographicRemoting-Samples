@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = device.get_stream_handle_with_format(format).unwrap();
     panic!();*/
 
-    /*use windows::Win32::Media::MediaFoundation::*;
+    use windows::Win32::Media::MediaFoundation::*;
     unsafe{use windows::Win32::System::Com::*; CoInitializeEx(None, COINIT(0))}?;
     unsafe{MFStartup(MF_API_VERSION, MFSTARTUP_NOSOCKET)}?;
     let mut attributes = None;
@@ -29,9 +29,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for index in 0.. {
         let media_type = unsafe{source_reader.GetNativeMediaType(MEDIA_FOUNDATION_FIRST_VIDEO_STREAM, index)}?;
         let fourcc = unsafe{media_type.GetGUID(&MF_MT_SUBTYPE)}?;
-        println!("{fourcc:?}");
-    }*/
-    std::env::set_var("XR_RUNTIME_JSON", "RemotingXR.json");
+        let (width, height) = media_type.GetUINT64(MF_MT_FRAME_SIZE);
+        println!("{index} {fourcc:?} {width} {height}");
+    }
+    let mut sample: Option<IMFSample> = None; // drops buffer
+    loop {
+        let mut flags = 0;
+        let mut _timestamp = 0;
+        unsafe{source_reader.ReadSample(MEDIA_FOUNDATION_FIRST_VIDEO_STREAM, 0, None, Some(&mut flags), Some(&mut _timestamp), Some(&mut sample))}?;
+        if flags & MF_SOURCE_READERF_STREAMTICK.0 as u32 == 0 { break; }
+    }
+    let buffer = unsafe{sample.unwrap().ConvertToContiguousBuffer()}?;
+    let mut len = 0;
+    let mut ptr = std::ptr::null_mut();
+    unsafe{buffer.Lock(&mut ptr, None, Some(&mut len))}?;
+    let buffer = unsafe{std::slice::from_raw_parts(ptr, len as usize)}; 
+
+    /*std::env::set_var("XR_RUNTIME_JSON", "RemotingXR.json");
     use openxr as xr;
     let xr = xr::Entry::linked();
     let available_extensions = xr.enumerate_extensions()?;
@@ -123,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let index = swapchain.acquire_image()? as usize;
         swapchain.wait_image(xr::Duration::INFINITE)?;
 
-        /*let mut sample: Option<IMFSample> = None; // drops buffer
+        let mut sample: Option<IMFSample> = None; // drops buffer
         loop {
             let mut flags = 0;
             let mut _timestamp = 0;
@@ -134,16 +148,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut len = 0;
         let mut ptr = std::ptr::null_mut();
         unsafe{buffer.Lock(&mut ptr, None, Some(&mut len))}?;
-        let buffer = unsafe{std::slice::from_raw_parts(ptr, len as usize)};*/    
-        let mut image = vec![0u16; 160*120];
-        println!("receive");
+        let buffer = unsafe{std::slice::from_raw_parts(ptr, len as usize)}; 
+        
+        /*let mut image = vec![0u16; 160*120];
+        //println!("receive");
         let (len, _sender) = camera.recv_from(bytemuck::cast_slice_mut(&mut image))?;
-        println!("received");
+        //println!("received");
         assert!(len == image.len()*std::mem::size_of::<u16>());
         let min = *image.iter().min().unwrap();
         let max = *image.iter().max().unwrap();
-        for value in image.iter_mut() { *value = (*value as u32 * ((1<<16)-1) / (max - min) as u32) as u16; } // Remap to full range. FIXME: does linear output get gamma compressed or wrongly interpreted as sRGB ?
-        let size = wgpu::Extent3d{width: 160, height: 120, depth_or_array_layers: 1};
+        for value in image.iter_mut() { *value = ((*value - min) as u32 * ((1<<16)-1) / (max - min) as u32) as u16; } // Remap to full range. FIXME: does linear output get gamma compressed or wrongly interpreted as sRGB ?
+        let size = wgpu::Extent3d{width: 160, height: 120, depth_or_array_layers: 1};*/
         let gpu_image = device.create_texture(&wgpu::TextureDescriptor{size, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::R16Unorm, usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, label: None});
         queue.write_texture(wgpu::ImageCopyTexture{texture: &gpu_image, mip_level: 0,origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All},
@@ -167,5 +182,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (_, views) = session.locate_views(view_type, frame_state.predicted_display_time, &reference_space)?;
         frame_stream.end(frame_state.predicted_display_time, environment_blend_mode, &[&xr::CompositionLayerProjection::new().space(&reference_space).views(&[0,1].map(|i|
             xr::CompositionLayerProjectionView::new().pose(views[i].pose).fov(views[i].fov).sub_image(xr::SwapchainSubImage::new().swapchain(&swapchain).image_array_index(/*i as u32*/0).image_rect(xr::Rect2Di {offset: xr::Offset2Di{x: 0, y: 0}, extent: xr::Extent2Di{width: width as i32, height: height as i32}}))))])?;
-    }
+    }*/
+    Ok(())
 }
